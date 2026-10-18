@@ -200,8 +200,6 @@ textarea{resize:vertical}
 
   <section class="card" aria-labelledby="h-items">
     <h2 id="h-items">明細（最大21行）</h2>
-    <label class="chk rateToggle"><input type="checkbox" id="useRate"> 卸価格で見積もる（掛率を適用）</label>
-    <p class="hint" id="rateInfo"></p>
     <div class="items" id="items"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="addItem" class="primary">＋ 行を追加</button>
@@ -215,7 +213,6 @@ textarea{resize:vertical}
       <label class="f">送料の追加分（税込・手入力）<input id="ship" class="num" inputmode="numeric" value="0"></label>
       <label class="f">特別値引きの追加分（税込・プラスで入力）<input id="disc" class="num" inputmode="numeric" placeholder="0"></label>
     </div>
-    <label class="chk"><input type="checkbox" id="hokkaido"> 北海道へ配送（ページ記載の北海道加算を送料に足す）</label>
     <div class="totals" id="totals"></div>
   </section>
 
@@ -261,15 +258,6 @@ textarea{resize:vertical}
       <input type="file" id="importFile" accept=".xlsx,.xls,.csv" aria-label="価格・在庫ファイルを選ぶ">
       <p class="msg" id="importMsg" role="status"></p>
       <button id="resetData" class="ghost small" style="width:max-content">共有データに戻す</button>
-    </details>
-    <details>
-      <summary>掛率を読み込む（この端末だけ）</summary>
-      <p class="hint">「商品コード」と「掛率」（70、70%、0.7のどれでも可）の列があるExcel/CSVを選んでください。「掛率」の代わりに「卸価格」の列でも読み込めます（上代から掛率を計算します）。掛率はこのスマホの中にだけ保存され、共有データやGitHubには入りません。</p>
-      <input type="file" id="rateFile" accept=".xlsx,.xls,.csv" aria-label="掛率ファイルを選ぶ">
-      <p class="msg" id="rateMsg" role="status"></p>
-      <button id="rateClear" class="ghost small" style="width:max-content">この端末の掛率を消す</button>
-      <div class="confirm" id="rateClearConfirm" hidden>この端末の掛率をすべて消しますか？
-        <button id="rateClearYes" class="small danger">消す</button><button id="rateClearNo" class="small">やめる</button></div>
     </details>
     <details>
       <summary>管理者用：URL読み取りの設定</summary>
@@ -400,7 +388,7 @@ function showDataInfo(){
 }
 /* ---------- state ---------- */
 function todayISO(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
-function blankItem(){ return {code:"", name:"", qty:"1", price:"", stock:"", sale:"", rate:"", shipUnits:"", shipAmount:"", hokkaidoExtra:"", fromPage:false}; }
+function blankItem(){ return {code:"", name:"", qty:"1", price:"", stock:"", sale:"", shipUnits:"", shipAmount:"", hokkaidoExtra:"", fromPage:false}; }
 function blankState(){
   return {toName:"",toPerson:"",honor:"auto",toAddr:"",toTel:"",toMail:"",items:[blankItem()],ship:"0",disc:"",
     qDate:todayISO(),validity:"２週間",leadtime:"在庫次第随時",terms:"先振込/クレジット決済（ＷＥＢサイト限定）",kariNo:"",staff:ls.get("bmq_staff","")};
@@ -411,23 +399,17 @@ const FIELDS = ["toName","toPerson","honor","toAddr","toTel","toMail","ship","di
 const toInt = v => { const n = parseInt(String(v??"").replace(/[^\d\-]/g,""),10); return isNaN(n)?0:n; };
 const yen = n => (n<0?"-":"")+"¥"+Math.abs(n).toLocaleString("ja-JP");
 /* per-line: discount = (通常価格 − セール価格) × 数量 / shipping = ceil(数量 ÷ N枚) × 金額 (N blank → 1行につき1回) */
-/* 掛率（この端末だけに保存。共有データには含めない） */
-let RATES = ls.get("bmq_rates", {map:{}, date:""});
-function rateOf(c){ const r = RATES.map[c]; return (r === undefined || r === null || r === "") ? "" : String(r); }
-const rateNum = v => { const s = String(v??"").replace(/[^\d.]/g,""); const n = parseFloat(s); return (s === "" || isNaN(n)) ? null : n; };
-function rateActive(it){ const r = rateNum(it.rate); return S.useRate && r !== null && r < 100; }
-/* 値引き：卸で見積る時は 上代×数量 − 上代×掛率×数量（端数は合計で1円未満を四捨五入）、それ以外はセール差額 */
+/* 値引き：通常価格とセール価格の差額 × 数量 */
 function lineDisc(it){
   const p = toInt(it.price), s = toInt(it.sale), q = toInt(it.qty);
-  if(rateActive(it)) return Math.round(p * q * (100 - rateNum(it.rate)) / 100);
   return (String(it.sale??"").trim() !== "" && s < p) ? (p - s) * q : 0;
 }
 function lineShip(it){
   const amt = toInt(it.shipAmount), q = toInt(it.qty), n = toInt(it.shipUnits);
-  if(!amt && !(S.hokkaido && toInt(it.hokkaidoExtra))) return 0;
+  if(!amt) return 0;
   if(!q) return 0;
   const times = n > 0 ? Math.ceil(q / n) : 1;
-  return times * (amt + (S.hokkaido ? toInt(it.hokkaidoExtra) : 0));
+  return times * amt;
 }
 function calc(){
   let sub = 0, autoShip = 0, autoDisc = 0;
@@ -455,34 +437,26 @@ function renderItems(){
       <label class="f">単価（税込）<input id="price${i}" class="num" inputmode="numeric" value=""></label>
       <label class="f">在庫<input id="stock${i}" class="num" inputmode="numeric" value=""></label>
       <div class="meta"><span>${i+1}行目${it.fromPage?"（ページから）":""}</span><span>金額 <b data-amt></b></span></div>
-      <div class="extra" ${(it.fromPage||it.sale||it.shipAmount||S.useRate)?"":"hidden"}>
-        <label class="f" ${S.useRate?"":"hidden"}>掛率（％）<input id="rate${i}" class="num" inputmode="decimal" placeholder="例 70"></label>
+      <div class="extra" ${(it.fromPage||it.sale||it.shipAmount)?"":"hidden"}>
         <label class="f">セール価格（税込）<input id="sale${i}" class="num" inputmode="numeric"></label>
         <label class="f">送料 何個ごと<input id="shipUnits${i}" class="num" inputmode="numeric" placeholder="空欄=1行1回"></label>
         <label class="f">送料（税込）<input id="shipAmount${i}" class="num" inputmode="numeric"></label>
         <p class="note" data-note></p>
       </div>
-      <button class="small ghost more" type="button" ${(it.fromPage||it.sale||it.shipAmount||S.useRate)?"hidden":""} style="grid-column:1/-1;justify-self:start">セール価格・送料を設定</button>`;
+      <button class="small ghost more" type="button" ${(it.fromPage||it.sale||it.shipAmount)?"hidden":""} style="grid-column:1/-1;justify-self:start">セール価格・送料を設定</button>`;
     const q = s => el.querySelector(s);
     const code = q(`#code${i}`), name=q(`#name${i}`), qty=q(`#qty${i}`), price=q(`#price${i}`), stock=q(`#stock${i}`), sugg=q(".sugg");
-    const sale = q(`#sale${i}`), shipUnits = q(`#shipUnits${i}`), shipAmount = q(`#shipAmount${i}`), rate = q(`#rate${i}`);
-    rate.value = it.rate || "";
-    rate.addEventListener("input", () => { it.rate = rate.value; amt(); update(); });
+    const sale = q(`#sale${i}`), shipUnits = q(`#shipUnits${i}`), shipAmount = q(`#shipAmount${i}`);
     code.value=it.code; name.value=it.name; qty.value=it.qty; price.value=it.price; stock.value=it.stock;
     sale.value = it.sale||""; shipUnits.value = it.shipUnits||""; shipAmount.value = it.shipAmount||"";
     const amt = () => {
       q("[data-amt]").textContent = (it.code||it.name) ? yen(toInt(it.qty)*toInt(it.price)) : "—";
       const parts = [];
       const d = lineDisc(it);
-      if(rateActive(it)){
-        const r = rateNum(it.rate), w = toInt(it.price) * r / 100;
-        parts.push(`掛率${r}%：卸単価 ${yen(Math.round(w))}${Number.isInteger(w)?"":"（約）"}、値引き <b>${yen(d)}</b>`);
-      } else if(S.useRate && String(it.code||"").trim() && rateNum(it.rate) === null) parts.push("掛率が未登録です。掛率を入れてください");
-      else if(String(it.sale||"").trim()!=="") parts.push(d ? `値引き <b>${yen(d)}</b>（${yen(toInt(it.price)-toInt(it.sale))}×${toInt(it.qty)}）` : "セール価格が単価以上のため値引きなし");
+      if(String(it.sale||"").trim()!=="") parts.push(d ? `値引き <b>${yen(d)}</b>（${yen(toInt(it.price)-toInt(it.sale))}×${toInt(it.qty)}）` : "セール価格が単価以上のため値引きなし");
       if(toInt(it.shipAmount)){
         const n = toInt(it.shipUnits);
         let s = `送料 <b>${yen(lineShip(it))}</b>（${n>0?`${n}個ごと`:"1行につき"}${yen(toInt(it.shipAmount))}`;
-        if(toInt(it.hokkaidoExtra)) s += `、北海道は＋${yen(toInt(it.hokkaidoExtra))}${S.hokkaido?"を適用中":""}`;
         parts.push(s + "）");
       }
       if(it.fromPage && !toInt(it.qty)) parts.push("数量を入れると計算します");
@@ -500,7 +474,6 @@ function renderItems(){
       const st = stockOf(c);
       it.stock = (st===undefined||st===null) ? "" : String(st); stock.value = it.stock;
       const nm = nameOf(c); if(nm){ it.name = nm; name.value = nm; }
-      const rr = rateOf(c); if(rr !== ""){ it.rate = rr; rate.value = rr; }
       sugg.hidden = true; amt(); update();
     };
     code.addEventListener("input", () => {
@@ -537,18 +510,7 @@ function renderItems(){
   $("addItem").disabled = S.items.length >= MAX_ROWS;
   $("addItem").textContent = S.items.length >= MAX_ROWS ? "21行（用紙の上限）に達しました" : "＋ 行を追加";
 }
-function fillFields(){ FIELDS.forEach(f => { $(f).value = S[f] ?? ""; }); $("hokkaido").checked = !!S.hokkaido; $("useRate").checked = !!S.useRate; }
-$("hokkaido").addEventListener("change", () => { S.hokkaido = $("hokkaido").checked; renderItems(); update(); });
-function showRateInfo(){
-  const n = Object.keys(RATES.map).length;
-  $("rateInfo").textContent = n ? `この端末に掛率 ${n.toLocaleString()}件（${RATES.date}読み込み）があります。卸で見積もると、上代を単価にして卸価格との差額を特別値引きに入れます。`
-    : "掛率がまだこの端末に読み込まれていません（「商品データ」から読み込めます）。品番ごとに手入力もできます。";
-}
-$("useRate").addEventListener("change", () => {
-  S.useRate = $("useRate").checked;
-  if(S.useRate) S.items.forEach(it => { if(it.code && rateNum(it.rate) === null){ const r = rateOf(it.code); if(r !== "") it.rate = r; } });
-  renderItems(); update();
-});
+function fillFields(){ FIELDS.forEach(f => { $(f).value = S[f] ?? ""; }); }
 
 /* ---------- read product pages (pasted text, no AI) ---------- */
 function itemFromPage(r){
@@ -576,40 +538,92 @@ function summary(it){
   const bits = [`${it.name || "（商品名なし）"}`, it.price ? `通常${yen(toInt(it.price))}` : "価格読み取れず"];
   if(it.sale) bits.push(`セール${yen(toInt(it.sale))}`);
   if(it.shipAmount) bits.push(`送料${it.shipUnits?it.shipUnits+"個ごと":""}${yen(toInt(it.shipAmount))}`);
-  else bits.push(it.shipFree ? "送料無料" + (it.hokkaidoExtra ? `（北海道等＋${yen(toInt(it.hokkaidoExtra))}）` : "") : "送料の記載なし");
+  else bits.push(it.shipFree ? "送料無料" : "送料の記載なし");
   return bits.join("・");
 }
 /* Text copied from Safari or from iPhone Live Text on a screenshot. */
 const JUNK = /^(BODYMAKER|bodymaker\.jp|\d{1,2}:\d{2}.*|[0-9]+G|\d+|LTE|商品の詳細を表示|お気に入り.*|カートに入れる|ログイン|メニュー|検索|TOP|ホーム|\d+%\s*OFF|.*保証|.*ポイント.*|.*レビュー.*|ショップ.*|カテゴリ.*)$/i;
-function parsePage(raw){
-  const orig = raw.replace(/\r/g,"").split("\n").map(s => s.trim());
-  const nfk = orig.map(s => s.normalize("NFKC"));
-  const all = nfk.join("\n");
-  const firstPriceIdx = nfk.findIndex(l => /[¥]\s*[\d,]{3,}|通常価格|%\s*OFF|税込/i.test(l));
-  let name = null;
-  for(let i = (firstPriceIdx < 0 ? nfk.length : firstPriceIdx) - 1; i >= 0; i--){
-    const l = nfk[i];
-    if(!l || l.length < 3 || JUNK.test(l)) continue;
-    name = orig[i].replace(/\s{2,}/g, "　"); break;
+/* GAS（Code.gs）と同じ読み取りルール */
+/* 文字（スクショのOCR結果や、ページからコピーした文字）から項目を抜き出す */
+function parsePageText(raw) {
+  var JUNK = /^(BODYMAKER|bodymaker\.jp|\d{1,2}:\d{2}.*|[0-9]+G|\d+|LTE|商品の詳細を表示|お気に入り.*|カートに入れる|ログイン|メニュー|検索|TOP|ホーム|\d+%\s*OFF|.*保証|.*ポイント.*|.*レビュー.*|ショップ.*|カテゴリ.*|送料無料.*|カラー|サイズ|色|数量|個数|種類|タイプ|重量|選択.*|在庫.*|SALE|NEW|新商品|再入荷)$/i;
+  // 商品価格ではない金額が書かれた行（ローン・組立サービス・ポイント・送料など）
+  var NOT_PRICE = /(ローン|分割|総額|初回|以降|年率|交通費|諸費用|組み?立て|ポイント|\d+\s*pt|\+|＋|配送|送料|北海道|沖縄|離島|以上|クーポン|まとめ買い)/i;
+  function num(s) { return s ? Number(String(s).replace(/[^\d]/g, '')) || null : null; }
+  var orig = String(raw).replace(/\r/g, '').split('\n').map(function (s) { return s.trim(); });
+  var nfk = orig.map(function (s) { return s.normalize('NFKC').replace(/\\(?=\s*\d)/g, '¥'); });
+  var all = nfk.join('\n');
+  function isPriceLine(l) { return /¥\s*[\d,]{3,}|通常価格|%\s*OFF|\(?税込/i.test(l); }
+  function nameOk(l) { return l && l.length >= 2 && !JUNK.test(l) && !isPriceLine(l); }
+
+  // 商品名：最初の価格行の直前の行。2〜3行に折り返された名前はつなげる
+  var firstPriceIdx = -1;
+  for (var i = 0; i < nfk.length; i++) { if (isPriceLine(nfk[i]) && !NOT_PRICE.test(nfk[i])) { firstPriceIdx = i; break; } }
+  var end = firstPriceIdx < 0 ? nfk.length : firstPriceIdx, last = -1;
+  for (var k = end - 1; k >= 0; k--) { if (nameOk(nfk[k]) && nfk[k].length >= 3) { last = k; break; } }
+  var name = null, nameIdx = -1;
+  if (last >= 0) {
+    var parts = [orig[last]], start = last;
+    for (var n = 0; n < 2; n++) {
+      var prev = start - 1;
+      if (prev < 0 || !nameOk(nfk[prev])) break;
+      var head = nfk[start];
+      // 続きの行（カッコで始まる／前の行が長く折り返している）ならつなげる
+      if (/^[(（【\[]/.test(head) || nfk[prev].length >= 12) { parts.unshift(orig[prev]); start = prev; }
+      else break;
+    }
+    name = parts.join('').replace(/\s{2,}/g, '　');
+    nameIdx = start;
   }
-  const priceLines = nfk.filter(l => !/(配送|送料|北海道|沖縄|離島|以上|ポイント)/.test(l));
-  const regM = all.match(/通常価格[^\d¥\n]{0,8}[¥]?\s*([\d,]+)/);
-  const taxPrices = [];
-  priceLines.forEach(l => { for(const m of l.matchAll(/[¥]\s*([\d,]+)\s*\(?\s*税込/g)) taxPrices.push(toInt(m[1])); });
-  if(!taxPrices.length) priceLines.forEach(l => { for(const m of l.matchAll(/[¥]\s*([\d,]{3,})/g)) taxPrices.push(toInt(m[1])); });
-  const regular = regM ? toInt(regM[1]) : (taxPrices.length ? Math.max(...taxPrices) : null);
-  const lower = taxPrices.filter(p => regular && p < regular);
-  const sale = lower.length ? Math.min(...lower) : null;
-  const shipLine = nfk.find(l => /(配送料|送料)/.test(l) && !/北海道のみ/.test(l)) || "";
-  const shipCtx = shipLine + "\n" + (nfk[nfk.indexOf(shipLine)+1] || "");
-  let perUnits = null, amount = null;
-  const per = shipCtx.match(/(\d+)\s*(?:枚|個|台|点|本|セット|組|ケース|kg|箱)?\s*(?:毎|ごと)\s*[:]?\s*[¥]?\s*([\d,]+)/);
-  if(per){ perUnits = toInt(per[1]); amount = toInt(per[2]); }
-  else if(/送料無料/.test(all)){ amount = 0; }
-  else { const flat = shipCtx.match(/(?:配送料|送料)[^¥\d\n]{0,10}[¥]\s*([\d,]+)/); if(flat) amount = toInt(flat[1]); }
-  const hk = all.match(/北海道[^\d¥\n]{0,12}[¥]?\s*([\d,]+)/);
-  return {name, regularPrice:regular, salePrice:sale, shipping:{perUnits, amount, hokkaidoExtra: hk ? toInt(hk[1]) : null}};
+
+  // 価格：商品名より後ろの、商品価格の行だけを見る
+  var priceLines = nfk.filter(function (l, idx) { return idx >= Math.max(0, nameIdx) && !NOT_PRICE.test(l); });
+  var regM = all.match(/通常価格[^\d¥\n]{0,8}¥?\s*([\d,]+)/);
+  var regular = regM ? num(regM[1]) : null;
+  var main = null;
+  for (var p = 0; p < priceLines.length && main === null; p++) {
+    var l2 = priceLines[p];
+    if (/通常価格/.test(l2)) continue;
+    var m1 = l2.match(/¥\s*([\d,]{3,})\s*\(?\s*税込/) || l2.match(/¥\s*([\d,]{3,})/);
+    if (m1) main = num(m1[1]);
+  }
+  var sale = null;
+  if (regular && main && main < regular) sale = main;
+  if (!regular) regular = main;
+
+  var shipIdx = -1;
+  for (var j = 0; j < nfk.length; j++) { if (/配送料/.test(nfk[j])) { shipIdx = j; break; } }
+  if (shipIdx < 0) for (var j2 = 0; j2 < nfk.length; j2++) { if (/送料/.test(nfk[j2]) && /(¥|\d)/.test(nfk[j2])) { shipIdx = j2; break; } }
+  var shipCtx = shipIdx < 0 ? '' : nfk[shipIdx];
+  if (shipIdx >= 0 && !/¥|\d/.test(shipCtx.replace(/^.*?(配送料|送料)/, ''))) shipCtx += ' ' + (nfk[shipIdx + 1] || '');
+  var shipping = parseShipping(shipCtx.replace(/^.*?配送料\s*[:：]?\s*/, ''));
+  if (shipping.amount === null && /送料無料/.test(all)) shipping.amount = 0;
+
+  var codeM = all.match(/商品コード\s*[:：]?\s*([A-Z0-9][A-Z0-9\-_]{2,})/i);
+  return { code: codeM ? codeM[1].toUpperCase() : '', name: name, regularPrice: regular, salePrice: sale, shipping: shipping };
 }
+
+function parseShipping(text) {
+  var t = String(text || '').normalize('NFKC').replace(/\\/g, '¥').trim();
+  var r = { perUnits: null, amount: null, hokkaidoExtra: null, text: t };
+  if (!t) return r;
+  var main = t.split('※')[0];
+  var per = main.match(/(\d+)\s*(?:枚|個|台|点|本|セット|組|ケース|箱|kg)?\s*(?:毎|ごと)\s*[:]?\s*¥?\s*([\d,]+)/);
+  if (/送料無料/.test(main)) {          // 送料無料の表示があれば最優先（「¥8,800→送料無料」なども無料）
+    r.amount = 0;
+  } else if (per) {
+    r.perUnits = Number(per[1]);
+    r.amount = Number(per[2].replace(/,/g, ''));
+  } else {
+    var flat = main.match(/¥\s*([\d,]+)/);
+    if (flat) r.amount = Number(flat[1].replace(/,/g, ''));
+  }
+  var hk = t.match(/北海道[^¥\d]{0,15}¥?\s*([\d,]{3,})/);
+  if (hk) r.hokkaidoExtra = Number(hk[1].replace(/,/g, ''));
+  return r;
+}
+
+function parsePage(raw){ return parsePageText(raw); }
 $("pasteRead").addEventListener("click", () => {
   const t = $("pasteText").value.trim(); const msg = $("shotMsg"); msg.className = "msg";
   if(!t){ msg.className = "msg err"; msg.textContent = "商品ページの文字を貼り付けてください。"; return; }
@@ -645,7 +659,6 @@ function itemFromSite(j){
   const it = itemFromPage(j);
   it.code = String(j.code||"").trim();
   const st = stockOf(it.code); if(st !== undefined && st !== null) it.stock = String(st);
-  if(S.useRate){ const r = rateOf(it.code); if(r !== "") it.rate = r; }
   if(it.code && it.name){ NAMES[it.code] = it.name; ls.set(LS.names, NAMES); }
   return it;
 }
@@ -776,7 +789,7 @@ function update(){
   const c = fillSheet(pv);
   $("totals").innerHTML = "";
   const shipLbl = c.autoShip ? `送料（ページから${yen(c.autoShip)}＋手入力${yen(toInt(S.ship))}）` : "送料";
-  const discLbl = c.autoDisc ? `特別値引き（${S.useRate?"卸価格との差額":"セール差額"}${yen(c.autoDisc)}＋手入力${yen(Math.abs(toInt(S.disc)))}）` : "特別値引き";
+  const discLbl = c.autoDisc ? `特別値引き（セール差額${yen(c.autoDisc)}＋手入力${yen(Math.abs(toInt(S.disc)))}）` : "特別値引き";
   [["商品代金合計",c.sub],[shipLbl,c.ship],[discLbl,-c.disc],["うち消費税10％",c.tax]].forEach(([k,v])=>{
     const a=document.createElement("span"); a.textContent=k; const b=document.createElement("span"); b.textContent=yen(v); b.style.textAlign="right";
     $("totals").append(a,b);
@@ -941,59 +954,6 @@ $("sheetSync").addEventListener("click", async () => {
     msg.className = "msg err"; msg.textContent = "同期できませんでした。電波状況と、URLが「ウェブに公開（CSV）」のものか確認してください。";
   }
 });
-/* ---------- 掛率（この端末だけ） ---------- */
-function parseRate(v){
-  if(v === null || v === undefined || v === "") return null;
-  if(typeof v === "number") return v <= 1 ? Math.round(v * 1e6) / 1e4 : v;
-  const s = String(v).normalize("NFKC").trim();
-  const n = parseFloat(s.replace(/[^\d.]/g, ""));
-  if(isNaN(n)) return null;
-  if(/掛/.test(s) && n < 10) return n * 10;          /* 7掛 → 70 */
-  return n <= 1 ? Math.round(n * 1e6) / 1e4 : n;
-}
-$("rateFile").addEventListener("change", async e => {
-  const f = e.target.files[0]; if(!f) return;
-  const msg = $("rateMsg"); msg.className = "msg"; msg.textContent = "読み込み中…";
-  try{
-    const buf = await f.arrayBuffer();
-    const wb = /\.csv$/i.test(f.name) ? XLSX.read(decodeCsv(buf), {type:"string", raw:true}) : XLSX.read(buf, {type:"array"});
-    const map = {}; let n = 0, skipped = 0;
-    wb.SheetNames.forEach(sn => {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, raw:true, defval:""});
-      for(let r = 0; r < Math.min(5, rows.length); r++){
-        const hdr = (rows[r]||[]).map(norm);
-        const ci = findCol(hdr, ["商品コード","商品番号","品番","SKU"]);
-        if(ci < 0) continue;
-        const ri = findCol(hdr, ["掛率","掛け率","掛"]);
-        const wi = ri < 0 ? findCol(hdr, ["卸価格(税込)","卸価格","卸値","卸単価","下代"]) : -1;
-        if(ri < 0 && wi < 0) continue;
-        for(let k = r + 1; k < rows.length; k++){
-          const row = rows[k]; if(!row) continue;
-          const code = String(row[ci] ?? "").trim(); if(!code) continue;
-          let rate = null;
-          if(ri >= 0) rate = parseRate(row[ri]);
-          else { const w = toInt(row[wi]), p = toInt(priceOf(code)); if(w && p) rate = Math.round(w / p * 1e6) / 1e4; }
-          if(rate === null || rate <= 0 || rate > 100){ skipped++; continue; }
-          map[code] = rate; n++;
-        }
-        break;
-      }
-    });
-    if(!n){ msg.className = "msg err"; msg.textContent = "掛率を読み取れませんでした。1〜5行目に「商品コード」と「掛率」（または「卸価格」）の見出しがあるか確認してください。"; return; }
-    RATES = {map, date: stamp()};
-    const ok = ls.set("bmq_rates", RATES);
-    showRateInfo(); renderItems(); update();
-    msg.className = "msg ok";
-    msg.textContent = `掛率を${n.toLocaleString()}件読み込みました` + (skipped ? `（読めなかった行 ${skipped}件）` : "") + (ok ? "" : "。この端末に保存できなかったため、閉じると消えます");
-  }catch(err){ msg.className = "msg err"; msg.textContent = "ファイルを読めませんでした。Excel（.xlsx）かCSVを選んでください。"; }
-  finally{ e.target.value = ""; }
-});
-$("rateClear").addEventListener("click", () => { $("rateClearConfirm").hidden = false; });
-$("rateClearNo").addEventListener("click", () => { $("rateClearConfirm").hidden = true; });
-$("rateClearYes").addEventListener("click", () => {
-  RATES = {map:{}, date:""}; ls.del("bmq_rates"); showRateInfo(); renderItems(); update();
-  $("rateClearConfirm").hidden = true; $("rateMsg").className = "msg ok"; $("rateMsg").textContent = "この端末の掛率を消しました。";
-});
 
 /* ---------- PDF ---------- */
 let lastPdf = null;
@@ -1038,7 +998,7 @@ $("pdfClose").addEventListener("click", () => { $("pdfReady").hidden = true; $("
 if(!Array.isArray(S.items) || !S.items.length) S.items = [blankItem()];
 $("sheetUrl").value = ls.get(LS.sheetUrl, DEFAULT_SHEET);
 $("gasUrl").value = ls.get("bmq_gas", "");
-rebuildCodes(); showDataInfo(); showRateInfo(); fillFields(); renderItems(); renderRecent(); renderSaved(); update(); fitPreview();
+rebuildCodes(); showDataInfo(); fillFields(); renderItems(); renderRecent(); renderSaved(); update(); fitPreview();
 loadShared();
 </script>
 </body>
