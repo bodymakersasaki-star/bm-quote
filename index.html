@@ -126,6 +126,7 @@ textarea{resize:vertical}
 .sheet tr.tot td{height:20.2px;line-height:18px;font-size:13px}
 .sheet tr.tot td.lab{text-align:center}
 .sheet tr.tot td.red{color:#e00}
+.sheet td.few{font-size:10px;letter-spacing:-.02em}
 .sheet tr.grand td{border:2px solid #000;font-size:16px;font-weight:700;height:21px}
 .sheet tr.grand td.lab{letter-spacing:1.1em;text-indent:1.1em}
 .sheet table{border:1.5px solid #000}
@@ -329,7 +330,7 @@ textarea{resize:vertical}
     <tbody>
       <tr class="tot"><td class="lab" colspan="5">商品代金合計</td><td class="r" data-k="sub"></td></tr>
       <tr class="tot"><td class="lab" colspan="5">送　　　　　　料</td><td class="r" data-k="ship"></td></tr>
-      <tr class="tot"><td class="lab red" colspan="5">特別値引き</td><td class="r" data-k="disc"></td></tr>
+      <tr class="tot"><td class="lab red" colspan="5">特別値引き</td><td class="r red" data-k="disc"></td></tr>
       <tr class="tot"><td class="lab" colspan="5">消費税10％（内消費税）</td><td class="r" data-k="tax"></td></tr>
       <tr class="tot grand"><td class="lab" colspan="5">合計（税込）</td><td class="r" data-k="grand"></td></tr>
     </tbody>
@@ -401,6 +402,15 @@ const toInt = v => { const n = parseInt(String(v??"").replace(/[^\d\-]/g,""),10)
 const yen = n => (n<0?"-":"")+"¥"+Math.abs(n).toLocaleString("ja-JP");
 /* per-line: discount = (通常価格 − セール価格) × 数量 / shipping = ceil(数量 ÷ N枚) × 金額 (N blank → 1行につき1回) */
 /* 値引き：通常価格とセール価格の差額 × 数量 */
+/* 在庫の表記：20以上 ○／5〜19 △／1〜4 残りわずか／0以下 ×（空欄は表示しない） */
+function stockMark(v){
+  if(String(v??"").trim() === "") return "";
+  const n = toInt(v);
+  if(n >= 20) return "○";
+  if(n >= 5) return "△";
+  if(n >= 1) return "残りわずか";
+  return "×";
+}
 function lineDisc(it){
   const p = toInt(it.price), s = toInt(it.sale), q = toInt(it.qty);
   return (String(it.sale??"").trim() !== "" && s < p) ? (p - s) * q : 0;
@@ -437,7 +447,7 @@ function renderItems(){
       <label class="f">数量<input id="qty${i}" class="num" inputmode="numeric" value=""></label>
       <label class="f">単価（税込）<input id="price${i}" class="num" inputmode="numeric" value=""></label>
       <label class="f">在庫<input id="stock${i}" class="num" inputmode="numeric" value=""></label>
-      <div class="meta"><span>${i+1}行目${it.fromPage?"（ページから）":""}</span><span>金額 <b data-amt></b></span></div>
+      <div class="meta"><span>${i+1}行目${it.fromPage?"（ページから）":""}<span data-mark></span></span><span>金額 <b data-amt></b></span></div>
       <div class="extra" ${(it.fromPage||it.sale||it.shipAmount)?"":"hidden"}>
         <label class="f">セール価格（税込）<input id="sale${i}" class="num" inputmode="numeric"></label>
         <label class="f">送料 何個ごと<input id="shipUnits${i}" class="num" inputmode="numeric" placeholder="空欄=1行1回"></label>
@@ -452,6 +462,7 @@ function renderItems(){
     sale.value = it.sale||""; shipUnits.value = it.shipUnits||""; shipAmount.value = it.shipAmount||"";
     const amt = () => {
       q("[data-amt]").textContent = (it.code||it.name) ? yen(toInt(it.qty)*toInt(it.price)) : "—";
+      q("[data-mark]").textContent = stockMark(it.stock) ? `　見積書の在庫欄：${stockMark(it.stock)}` : "";
       const parts = [];
       const d = lineDisc(it);
       if(String(it.sale||"").trim()!=="") parts.push(d ? `値引き <b>${yen(d)}</b>（${yen(toInt(it.price)-toInt(it.sale))}×${toInt(it.qty)}）` : "セール価格が単価以上のため値引きなし");
@@ -504,7 +515,7 @@ function renderItems(){
     name.addEventListener("change", () => { if(it.code && it.name.trim()){ NAMES[it.code] = it.name.trim(); ls.set(LS.names, NAMES); rebuildCodes(); } });
     qty.addEventListener("input", () => { it.qty = qty.value; amt(); update(); });
     price.addEventListener("input", () => { it.price = price.value; amt(); update(); });
-    stock.addEventListener("input", () => { it.stock = stock.value; update(); });
+    stock.addEventListener("input", () => { it.stock = stock.value; amt(); update(); });
     q(".del").addEventListener("click", () => { S.items.splice(i,1); if(!S.items.length) S.items.push(blankItem()); renderItems(); update(); });
     box.appendChild(el);
   });
@@ -783,7 +794,7 @@ function fillSheet(root){
     const it = S.items[i]; const tr = document.createElement("tr");
     const used = it && (it.code||it.name);
     const cells = used ? [
-      [it.code,""],[it.name,"nm"],[it.qty?toInt(it.qty).toLocaleString():"","c"],[it.stock!==""?String(toInt(it.stock)):"","c"],
+      [it.code,""],[it.name,"nm"],[it.qty?toInt(it.qty).toLocaleString():"","c"],[stockMark(it.stock), stockMark(it.stock)==="残りわずか" ? "c few" : "c"],
       [it.price!==""?yen(toInt(it.price)):"","r"],[yen(toInt(it.qty)*toInt(it.price)),"r"]] : [["",""],["",""],["",""],["",""],["",""],["",""]];
     cells.forEach(([t,cls]) => { const td=document.createElement("td"); if(cls) td.className=cls; td.textContent=t; tr.appendChild(td); });
     tb.appendChild(tr);
