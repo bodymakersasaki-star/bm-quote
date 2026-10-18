@@ -238,8 +238,9 @@ textarea{resize:vertical}
     </div>
     <div class="confirm" id="newConfirm" hidden>入力中の内容を消して新しく作りますか？
       <button id="newYes" class="small danger">消して新規作成</button><button id="newNo" class="small">やめる</button></div>
+    <p class="msg" id="remoteMsg" role="status"></p>
     <div class="saved" id="savedList"></div>
-    <p class="hint">保存先はこの端末のブラウザだけです。他の人やほかの端末には見えません。</p>
+    <p class="hint" id="saveHint">保存先はこの端末のブラウザだけです。他の人やほかの端末には見えません。</p>
   </section>
 
   <section class="card" aria-labelledby="h-data">
@@ -740,6 +741,23 @@ $("shotFile").addEventListener("change", async e => {
   msg.className = failed ? "msg err" : "msg ok";
   msg.textContent = `${added}件追加しました` + (failed ? `（${failed}件は読み取れませんでした）` : "") + (added ? "。品番と数量を確認してください。" : "");
 });
+/* ---------- 見積の記録をスプレッドシートへ（Apps Script経由） ---------- */
+async function remoteSave(state, c){
+  const msg = $("remoteMsg"); msg.className = "msg";
+  if(!gasUrl()){ msg.textContent = ""; return; }
+  const items = state.items.filter(it => it.code || it.name).map(it => ({code: it.code||"", name: it.name||"", qty: toInt(it.qty), price: toInt(it.price)}));
+  if(!items.length){ msg.className = "msg err"; msg.textContent = "明細が空のため、スプレッドシートには記録していません。"; return; }
+  msg.textContent = "スプレッドシートに記録中…";
+  try{
+    const res = await fetch(gasUrl(), {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, redirect:"follow",
+      body: JSON.stringify({action:"saveQuote", quote:{date: fmtDate(state.qDate), toName: state.toName, toPerson: state.toPerson, items, total: c.grand, staff: state.staff, kariNo: state.kariNo}})});
+    const j = await res.json();
+    if(!j || !j.ok) throw new Error((j && (j.message || j.error)) || "error");
+    msg.className = "msg ok"; msg.textContent = "スプレッドシートにも記録しました。";
+  }catch(e){
+    msg.className = "msg err"; msg.textContent = "この端末には保存しましたが、スプレッドシートへの記録に失敗しました。電波の良い場所でもう一度「今の見積を保存」を押してください。";
+  }
+}
 
 FIELDS.forEach(f => $(f).addEventListener("input", () => { S[f] = $(f).value; if(f==="staff") ls.set("bmq_staff", S.staff); update(); }));
 $("addItem").addEventListener("click", () => {
@@ -844,6 +862,7 @@ $("saveQuote").addEventListener("click", () => {
   rememberRecipient(); renderSaved();
   $("saveQuote").textContent = ok ? "保存しました" : "保存できませんでした";
   setTimeout(()=>{ $("saveQuote").textContent = "今の見積を保存"; }, 2000);
+  if(typeof remoteSave === "function") remoteSave(S, calc());
 });
 $("newQuote").addEventListener("click", () => { $("newConfirm").hidden = false; });
 $("newNo").addEventListener("click", () => { $("newConfirm").hidden = true; });
@@ -918,6 +937,7 @@ async function loadShared(){
     if(!LOCAL) DATA = SHARED;
   }catch(e){ /* offline: keep cached copy */ }
   rebuildCodes(); showDataInfo();
+  if(gasUrl()) $("saveHint").textContent = "「今の見積を保存」を押すと、この端末と営業課の見積記録（スプレッドシート）の両方に保存されます。押すたびに1行記録されます。";
 }
 function saveBlob(blob, name){
   const url = URL.createObjectURL(blob);
@@ -997,6 +1017,7 @@ $("pdfClose").addEventListener("click", () => { $("pdfReady").hidden = true; $("
 /* ---------- boot ---------- */
 if(!Array.isArray(S.items) || !S.items.length) S.items = [blankItem()];
 $("sheetUrl").value = ls.get(LS.sheetUrl, DEFAULT_SHEET);
+if(gasUrl()) $("saveHint").textContent = "「今の見積を保存」を押すと、この端末と営業課の見積記録（スプレッドシート）の両方に保存されます。押すたびに1行記録されます。";
 $("gasUrl").value = ls.get("bmq_gas", "");
 rebuildCodes(); showDataInfo(); fillFields(); renderItems(); renderRecent(); renderSaved(); update(); fitPreview();
 loadShared();
