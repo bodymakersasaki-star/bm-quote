@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
+<meta name="format-detection" content="telephone=no,email=no,address=no,date=no">
 <title>BODYMAKER 御見積書メーカー</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -103,6 +104,7 @@ textarea{resize:vertical}
 /* ===== A4 sheet (paper colors fixed on purpose; 909 x 1286 units) ===== */
 .sheet{width:909px;height:1286px;position:relative;background:#fff;color:#000;font-family:var(--mincho);overflow:hidden}
 .sheet *{position:absolute;margin:0}
+.sheet a,.sheet a[x-apple-data-detectors],.sheet a[href^="tel"]{position:static;color:inherit!important;text-decoration:none!important;font:inherit!important;pointer-events:none}
 .sheet .logo1{left:42px;top:117px;width:278px;height:153px}
 .sheet .title{left:330px;width:335px;top:112px;text-align:center;font-size:30px;font-weight:700;letter-spacing:.55em;text-indent:.55em}
 .sheet .date{right:31px;top:136px;font-size:13px;font-family:var(--ui)}
@@ -411,6 +413,15 @@ function stockMark(v){
   if(n >= 1) return "残りわずか";
   return "×";
 }
+/* 長い商品名・品番は、欄に収まるまで文字を小さくする（全角1字=1em、半角=0.55emで概算） */
+const CELL_W = {nm: 329, code: 84};
+function emLen(s){ let n = 0; for(const ch of String(s||"")) n += /[\u0020-\u007e\uff61-\uff9f]/.test(ch) ? 0.55 : 1; return n; }
+function fitCell(td, text, cls){
+  const key = cls === "nm" ? "nm" : (cls === "" ? "code" : null);
+  if(!key || !text) return;
+  const base = key === "nm" ? 12 : 12.5, size = Math.min(base, CELL_W[key] / Math.max(emLen(text), 1));
+  if(size < base) td.style.fontSize = Math.max(7.5, Math.floor(size * 10) / 10) + "px";
+}
 function lineDisc(it){
   const p = toInt(it.price), s = toInt(it.sale), q = toInt(it.qty);
   return (String(it.sale??"").trim() !== "" && s < p) ? (p - s) * q : 0;
@@ -527,7 +538,7 @@ function fillFields(){ FIELDS.forEach(f => { $(f).value = S[f] ?? ""; }); }
 /* ---------- read product pages (pasted text, no AI) ---------- */
 function itemFromPage(r){
   const it = blankItem();
-  it.fromPage = true; it.qty = "";
+  it.fromPage = true; it.qty = "1";
   it.name = String(r.name||"").trim();
   const reg = toInt(r.regularPrice), sale = toInt(r.salePrice);
   it.price = reg ? String(reg) : (sale ? String(sale) : "");
@@ -648,7 +659,7 @@ $("pasteRead").addEventListener("click", () => {
   const st = document.createElement("span"); st.className = "st"; st.textContent = "追加：" + summary(it);
   row.appendChild(st); $("shotList").prepend(row);
   msg.className = "msg ok";
-  msg.textContent = (it.name && it.price ? "" : "読み取れなかった項目は明細で直接入力してください。") + "品番と数量を入れてください。";
+  msg.textContent = (it.name && it.price ? "" : "読み取れなかった項目は明細で直接入力してください。") + "数量は1で入っています。品番を入れて、数量を確認してください。";
 });
 /* ---------- URL → Apps Script → 明細 ---------- */
 function gasUrl(){ return (ls.get("bmq_gas", "") || (SHARED && SHARED.gasUrl) || "").trim(); }
@@ -698,7 +709,7 @@ $("urlRead").addEventListener("click", async () => {
   btn.disabled = false;
   if(added) $("urlText").value = "";
   msg.className = failed ? "msg err" : "msg ok";
-  msg.textContent = `${added}件追加しました` + (failed ? `（${failed}件は読み取れませんでした）` : "") + (added ? "。数量を入れてください。" : "");
+  msg.textContent = `${added}件追加しました` + (failed ? `（${failed}件は読み取れませんでした）` : "") + (added ? "。数量は1で入っています。必要なら直してください。" : "");
 });
 $("gasUrl").addEventListener("change", () => {});
 $("gasSave").addEventListener("click", async () => {
@@ -750,7 +761,7 @@ $("shotFile").addEventListener("change", async e => {
     }catch(err){ row.className = "sl err"; st.textContent = SHOT_ERR[err && err.code] || "読み取れませんでした"; failed++; }
   }
   msg.className = failed ? "msg err" : "msg ok";
-  msg.textContent = `${added}件追加しました` + (failed ? `（${failed}件は読み取れませんでした）` : "") + (added ? "。品番と数量を確認してください。" : "");
+  msg.textContent = `${added}件追加しました` + (failed ? `（${failed}件は読み取れませんでした）` : "") + (added ? "。数量は1で入っています。品番を入れて、数量を確認してください。" : "");
 });
 /* ---------- 見積の記録をスプレッドシートへ（Apps Script経由） ---------- */
 async function remoteSave(state, c){
@@ -796,7 +807,7 @@ function fillSheet(root){
     const cells = used ? [
       [it.code,""],[it.name,"nm"],[it.qty?toInt(it.qty).toLocaleString():"","c"],[stockMark(it.stock), stockMark(it.stock)==="残りわずか" ? "c few" : "c"],
       [it.price!==""?yen(toInt(it.price)):"","r"],[yen(toInt(it.qty)*toInt(it.price)),"r"]] : [["",""],["",""],["",""],["",""],["",""],["",""]];
-    cells.forEach(([t,cls]) => { const td=document.createElement("td"); if(cls) td.className=cls; td.textContent=t; tr.appendChild(td); });
+    cells.forEach(([t,cls]) => { const td=document.createElement("td"); if(cls) td.className=cls; td.textContent=t; fitCell(td, t, cls); tr.appendChild(td); });
     tb.appendChild(tr);
   }
   set("sub", yen(c.sub)); set("ship", yen(c.ship)); set("disc", c.disc ? yen(-c.disc) : "");
