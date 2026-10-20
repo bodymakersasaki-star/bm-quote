@@ -141,7 +141,7 @@ textarea{resize:vertical}
 .sheet .stamp{left:705px;top:1119px;width:173px;height:42px;border:1px solid #000}
 .sheet .stamp i{top:0;bottom:0;border-left:1px solid #000}
 .sheet .stamp b{top:2px;font-size:13px;line-height:18px;width:22px;text-align:center;font-family:var(--ui)}
-.sheet .stamp .who{left:32px;width:52px;top:12px;font-size:10px;text-align:center;font-family:var(--ui)}
+.sheet .stamp .seal{left:37px;top:2px;width:40px;height:40px}
 #exportHost{position:fixed;left:-10000px;top:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -229,7 +229,7 @@ textarea{resize:vertical}
     <label class="f full">取引条件<input id="terms" value="先振込/クレジット決済（ＷＥＢサイト限定）"></label>
     <div class="row">
       <label class="f">仮注文番号<input id="kariNo"></label>
-      <label class="f">担当（押印欄に小さく印字）<input id="staff" placeholder="空欄なら印字なし"></label>
+      <label class="f">担当（押印欄に電子印が入ります）<input id="staff" placeholder="例：佐々木（空欄なら印なし）"></label>
     </div>
   </section>
 
@@ -348,7 +348,7 @@ textarea{resize:vertical}
   <div class="kariNo" data-k="kariNo"></div>
   <div class="stamp">
     <b style="left:3px">担<br>当</b><i style="left:28px"></i>
-    <span class="who" data-k="staff"></span>
+    <img class="seal" data-k="seal" alt="" hidden>
     <i style="left:86px"></i><b style="left:90px">承<br>認</b><i style="left:116px"></i>
   </div>
 </div>
@@ -421,6 +421,32 @@ function fitCell(td, text, cls){
   if(!key || !text) return;
   const base = key === "nm" ? 12 : 12.5, size = Math.min(base, CELL_W[key] / Math.max(emLen(text), 1));
   if(size < base) td.style.fontSize = Math.max(7.5, Math.floor(size * 10) / 10) + "px";
+}
+/* 電子印：担当欄の名字（スペースより前）を赤い丸印にする。画像にしてPDFにもそのまま写るようにする */
+const SEAL_CACHE = {};
+function sealName(v){ return String(v||"").trim().split(/[\s\u3000]+/)[0].slice(0, 4); }
+function sealImage(v){
+  const name = sealName(v);
+  if(!name) return "";
+  const key = name + "|" + (document.fonts && document.fonts.check("700 20px 'Noto Serif JP'") ? 1 : 0);
+  if(SEAL_CACHE[key]) return SEAL_CACHE[key];
+  const S2 = 240, c = document.createElement("canvas"); c.width = c.height = S2;
+  const g = c.getContext("2d"), red = "#d0211c", r = S2 / 2;
+  g.strokeStyle = red; g.fillStyle = red; g.lineWidth = S2 * 0.045;
+  g.beginPath(); g.arc(r, r, r - g.lineWidth / 2 - 2, 0, Math.PI * 2); g.stroke();
+  const chars = [...name];
+  const cols = chars.length <= 3 ? [chars] : [chars.slice(0, 2), chars.slice(2)];
+  const inner = (r - g.lineWidth) * 2 * 0.80;
+  const perCol = Math.max(...cols.map(col => col.length));
+  const size = Math.min(inner / perCol, inner / cols.length * (cols.length > 1 ? 1 : 0.95));
+  g.font = `700 ${size}px 'Noto Serif JP','Hiragino Mincho ProN','Yu Mincho','MS Mincho',serif`;
+  g.textAlign = "center"; g.textBaseline = "middle";
+  cols.forEach((col, ci) => {
+    const cx = cols.length === 1 ? r : r + (ci === 0 ? size / 2 : -size / 2);   // 縦書き：右の列から
+    const top = r - (col.length * size) / 2 + size / 2;
+    col.forEach((ch, i) => g.fillText(ch, cx, top + i * size * 0.98));
+  });
+  return SEAL_CACHE[key] = c.toDataURL("image/png");
 }
 function lineDisc(it){
   const p = toInt(it.price), s = toInt(it.sale), q = toInt(it.qty);
@@ -799,7 +825,9 @@ function fillSheet(root){
   set("toName", S.toName); set("toPerson", S.toPerson); set("honor", honorText());
   set("toAddr", S.toAddr); set("toTel", S.toTel); set("toMail", S.toMail);
   set("leadtime", S.leadtime); set("terms", S.terms); set("validity", S.validity);
-  set("kariNo", S.kariNo); set("staff", S.staff);
+  set("kariNo", S.kariNo);
+  const seal = root.querySelector('[data-k="seal"]');
+  if(seal){ const src = sealImage(S.staff); seal.hidden = !src; if(src) seal.src = src; else seal.removeAttribute("src"); }
   const tb = root.querySelector('[data-k="rows"]'); tb.innerHTML = "";
   for(let i=0;i<MAX_ROWS;i++){
     const it = S.items[i]; const tr = document.createElement("tr");
@@ -1043,6 +1071,7 @@ if(gasUrl()) $("saveHint").textContent = "「今の見積を保存」を押す�
 $("gasUrl").value = ls.get("bmq_gas", "");
 rebuildCodes(); showDataInfo(); fillFields(); renderItems(); renderRecent(); renderSaved(); update(); fitPreview();
 loadShared();
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(() => update());
 </script>
 </body>
 </html>
