@@ -140,7 +140,8 @@ textarea{resize:vertical}
 .sheet .kariNo{left:60px;top:1133px;font-size:12px;font-family:var(--ui);font-variant-numeric:tabular-nums}
 .sheet .stamp{left:705px;top:1119px;width:173px;height:42px;border:1px solid #000}
 .sheet .stamp i{top:0;bottom:0;border-left:1px solid #000}
-.sheet .stamp b{top:2px;font-size:13px;line-height:18px;width:22px;text-align:center;font-family:var(--ui)}
+.sheet .stamp b{top:2px;font-size:13px;line-height:18px;width:22px;text-align:center;font-family:var(--ui);display:flex;flex-direction:column;align-items:center}
+.sheet .stamp b span{position:static;display:block;width:22px;height:18px;line-height:18px}
 .sheet .stamp .seal{left:37px;top:2px;width:40px;height:40px}
 #exportHost{position:fixed;left:-10000px;top:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -347,9 +348,9 @@ textarea{resize:vertical}
   <div class="kari">仮注文番号</div>
   <div class="kariNo" data-k="kariNo"></div>
   <div class="stamp">
-    <b style="left:3px">担<br>当</b><i style="left:28px"></i>
+    <b style="left:3px"><span>担</span><span>当</span></b><i style="left:28px"></i>
     <img class="seal" data-k="seal" alt="" hidden>
-    <i style="left:86px"></i><b style="left:90px">承<br>認</b><i style="left:116px"></i>
+    <i style="left:86px"></i><b style="left:90px"><span>承</span><span>認</span></b><i style="left:116px"></i>
   </div>
 </div>
 </template>
